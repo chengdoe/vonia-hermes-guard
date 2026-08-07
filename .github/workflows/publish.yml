@@ -1,0 +1,78 @@
+name: publish-immutable-image
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/publish.yml
+      - .dockerignore
+      - Dockerfile
+      - build-manifest.json
+      - file_safety.py
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-immutable-image
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the fixed release context
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Verify the reviewed release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(sha256sum Dockerfile | awk '{print $1}')" = "30bee5e9b81046b6c43be14aff0972fe07af0eaef528b9c39404d30842f13557"
+          test "$(sha256sum .dockerignore | awk '{print $1}')" = "4b745e39f413090a89852132e86e8e20b625b11db50e717c87066b5f307635eb"
+          test "$(sha256sum file_safety.py | awk '{print $1}')" = "0107e4004eb38b12c49952b0e509094f1351ffc4e9c7252dc1ec9bd018af16f4"
+          test "$(jq -r .base_image build-manifest.json)" = "nousresearch/hermes-agent@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e"
+          test "$(jq -r .patched_sha256 build-manifest.json)" = "0107e4004eb38b12c49952b0e509094f1351ffc4e9c7252dc1ec9bd018af16f4"
+
+      - name: Log in with the ephemeral repository token
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+
+      - name: Build and publish the linux-amd64 image
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx create --name vonia-release --driver docker-container --use
+          docker buildx inspect --bootstrap
+          docker buildx build \
+            --platform linux/amd64 \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.licenses=MIT" \
+            --tag "ghcr.io/chengdoe/vonia-hermes-guard:3c27eb-fileguard" \
+            --metadata-file /tmp/build-metadata.json \
+            --push \
+            .
+          digest="$(jq -r '.["containerimage.digest"]' /tmp/build-metadata.json)"
+          test -n "$digest"
+          test "$digest" != "null"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "Published immutable digest: $digest"
+
+      - name: Verify registry manifest using the same ephemeral token
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "ghcr.io/chengdoe/vonia-hermes-guard@${{ steps.build.outputs.digest }}"
+
+      - name: Remove the temporary registry session
+        if: always()
+        shell: bash
+        run: docker logout ghcr.io || true

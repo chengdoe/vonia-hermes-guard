@@ -1,0 +1,18 @@
+{
+  "base_image": "nousresearch/hermes-agent@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e",
+  "context_allowlist": [
+    ".dockerignore",
+    "Dockerfile",
+    "build-manifest.json",
+    "file_safety.py"
+  ],
+  "fixed_revision": "3c27eb6234bf91b8ceee9e9071591b31e9b148cb",
+  "patch_sha256": "d81eadd887e558da5a3608e050c7aea711104e811b6e2e14495553c4a0344c33",
+  "patched_sha256": "0107e4004eb38b12c49952b0e509094f1351ffc4e9c7252dc1ec9bd018af16f4",
+  "patched_size": 30766,
+  "runtime_destination": "/opt/hermes/agent/file_safety.py",
+  "runtime_mode": "0644",
+  "runtime_owner": "0:0",
+  "source_file": "agent/file_safety.py",
+  "source_sha256": "e6ab7090cd2e8299ccc5a87c3e379edcb4d3992c1957e6788f820e0ac771735b"
+}
