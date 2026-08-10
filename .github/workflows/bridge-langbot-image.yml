@@ -1,0 +1,53 @@
+name: bridge-exact-langbot-image
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/bridge-langbot-image.yml
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: bridge-exact-langbot-image
+  cancel-in-progress: false
+
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    env:
+      SOURCE_IMAGE: registry-oci-sha2.zeabur.cn/e-6a2f9075cc38f37cdb9d996c/s-6a2f9077150d2427fabdc875:d-6a5496d9ffd97a454efa2666
+      SOURCE_DIGEST: sha256:43089ebb4b0c1a20b91a3f16a46a43ccfce25bc16672e725329b873c94d99159
+      TARGET_IMAGE: ghcr.io/chengdoe/vonia-hermes-guard:langbot-4.10.5-zeabur-20260713
+    steps:
+      - name: Install pinned crane client
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install github.com/google/go-containerregistry/cmd/crane@v0.20.6
+
+      - name: Verify source and authenticate destination
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$(crane digest "$SOURCE_IMAGE")" = "$SOURCE_DIGEST"
+          printf '%s' "$GHCR_TOKEN" | crane auth login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Copy the exact registry manifest and layers
+        shell: bash
+        run: |
+          set -euo pipefail
+          crane copy "$SOURCE_IMAGE" "$TARGET_IMAGE"
+          test "$(crane digest "$TARGET_IMAGE")" = "$SOURCE_DIGEST"
+          echo "Published exact LangBot image: $TARGET_IMAGE@$SOURCE_DIGEST"
+
+      - name: Remove temporary registry session
+        if: always()
+        shell: bash
+        run: crane auth logout ghcr.io || true
