@@ -1,0 +1,208 @@
+diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
+index 8c50942..6884b61 100644
+--- a/plugins/platforms/feishu/adapter.py
++++ b/plugins/platforms/feishu/adapter.py
+@@ -418,6 +418,10 @@ class FeishuAdapterSettings:
+     # Bot's user_id (tenant-scoped) — optional, used as fallback mention match.
+     bot_user_id: str
+     bot_name: str
++    # Explicit participant labels keyed by any Feishu ID tier.  This is useful
++    # for small private groups whose bot app can receive sender IDs but is not
++    # allowed to read Contact names or the full chat-member roster.
++    sender_aliases: Dict[str, str]
+     dedup_cache_size: int
+     text_batch_delay_seconds: float
+     text_batch_split_delay_seconds: float
+@@ -1579,6 +1583,25 @@ class FeishuAdapter(BasePlatformAdapter):
+             )
+             allow_bots = "none"
+
++        raw_sender_aliases: Any = extra.get("sender_aliases")
++        if raw_sender_aliases is None:
++            raw_sender_aliases = os.getenv("FEISHU_SENDER_ALIASES", "").strip()
++            if raw_sender_aliases:
++                try:
++                    raw_sender_aliases = json.loads(raw_sender_aliases)
++                except (TypeError, ValueError):
++                    logger.warning(
++                        "[Feishu] Ignoring invalid FEISHU_SENDER_ALIASES JSON."
++                    )
++                    raw_sender_aliases = {}
++        sender_aliases: Dict[str, str] = {}
++        if isinstance(raw_sender_aliases, dict):
++            for raw_id, raw_name in raw_sender_aliases.items():
++                sender_key = str(raw_id or "").strip()
++                display_name = str(raw_name or "").strip()
++                if sender_key and display_name:
++                    sender_aliases[sender_key] = display_name
++
+         return FeishuAdapterSettings(
+             app_id=str(extra.get("app_id") or os.getenv("FEISHU_APP_ID", "")).strip(),
+             app_secret=str(extra.get("app_secret") or _get_scoped_secret("FEISHU_APP_SECRET", "")).strip(),
+@@ -1599,6 +1622,7 @@ class FeishuAdapter(BasePlatformAdapter):
+             bot_open_id=os.getenv("FEISHU_BOT_OPEN_ID", "").strip(),
+             bot_user_id=os.getenv("FEISHU_BOT_USER_ID", "").strip(),
+             bot_name=os.getenv("FEISHU_BOT_NAME", "").strip(),
++            sender_aliases=sender_aliases,
+             dedup_cache_size=max(
+                 32,
+                 env_int("HERMES_FEISHU_DEDUP_CACHE_SIZE", _DEFAULT_DEDUP_CACHE_SIZE),
+@@ -1658,6 +1682,7 @@ class FeishuAdapter(BasePlatformAdapter):
+         self._bot_open_id = settings.bot_open_id
+         self._bot_user_id = settings.bot_user_id
+         self._bot_name = settings.bot_name
++        self._sender_aliases = dict(settings.sender_aliases)
+         self._dedup_cache_size = settings.dedup_cache_size
+         self._text_batch_delay_seconds = settings.text_batch_delay_seconds
+         self._text_batch_split_delay_seconds = settings.text_batch_split_delay_seconds
+@@ -3004,7 +3029,10 @@ class FeishuAdapter(BasePlatformAdapter):
+         action = "added" if "created" in event_type else "removed"
+         synthetic_text = f"reaction:{action}:{emoji_type}"
+
+-        sender_profile = await self._resolve_sender_profile(user_id_obj)
++        sender_profile = await self._resolve_sender_profile(
++            user_id_obj,
++            chat_id=chat_id if chat_type_raw != "p2p" else None,
++        )
+         chat_info = await self.get_chat_info(chat_id)
+         source = self.build_source(
+             chat_id=chat_id,
+@@ -3067,7 +3095,7 @@ class FeishuAdapter(BasePlatformAdapter):
+                 pass
+
+         sender_id = SimpleNamespace(open_id=open_id, user_id=None, union_id=None)
+-        sender_profile = await self._resolve_sender_profile(sender_id)
++        sender_profile = await self._resolve_sender_profile(sender_id, chat_id=chat_id)
+         chat_info = await self.get_chat_info(chat_id)
+         source = self.build_source(
+             chat_id=chat_id,
+@@ -3355,7 +3383,11 @@ class FeishuAdapter(BasePlatformAdapter):
+
+         chat_id = getattr(message, "chat_id", "") or ""
+         chat_info = await self.get_chat_info(chat_id)
+-        sender_profile = await self._resolve_sender_profile(sender_id, is_bot=is_bot)
++        sender_profile = await self._resolve_sender_profile(
++            sender_id,
++            is_bot=is_bot,
++            chat_id=chat_id if chat_type != "p2p" else None,
++        )
+         source = self.build_source(
+             chat_id=chat_id,
+             chat_name=chat_info.get("name") or chat_id or "Feishu Chat",
+@@ -4130,6 +4162,7 @@ class FeishuAdapter(BasePlatformAdapter):
+         sender_id: Any,
+         *,
+         is_bot: bool = False,
++        chat_id: Optional[str] = None,
+     ) -> Dict[str, Optional[str]]:
+         """Map Feishu's three-tier user IDs onto Hermes' SessionSource fields.
+
+@@ -4149,9 +4182,38 @@ class FeishuAdapter(BasePlatformAdapter):
+         primary_id = user_id or open_id
+         # bot/v3/bots/basic_batch only accepts open_id.
+         name_lookup_id = open_id if is_bot else (primary_id or union_id)
+-        display_name = await self._resolve_sender_name_from_api(
+-            name_lookup_id, is_bot=is_bot,
+-        )
++        display_name: Optional[str] = None
++        if not is_bot:
++            for candidate_id in (user_id, open_id, union_id):
++                if candidate_id and candidate_id in self._sender_aliases:
++                    display_name = self._sender_aliases[candidate_id]
++                    expire_at = time.time() + _FEISHU_SENDER_NAME_TTL_SECONDS
++                    for cache_id in (user_id, open_id, union_id):
++                        if cache_id:
++                            self._sender_name_cache[cache_id] = (
++                                display_name,
++                                expire_at,
++                            )
++                    break
++        if not display_name:
++            display_name = await self._resolve_sender_name_from_api(
++                name_lookup_id, is_bot=is_bot,
++            )
++        # contact/v3 may be unavailable to a bot or may return an ID-only user
++        # record.  In a group chat, the app can still resolve the display name
++        # from the chat-member roster it is already permitted to read.  This
++        # keeps per-participant group context attributable without broadening
++        # Contact permissions.
++        if not display_name and not is_bot and chat_id and open_id:
++            display_name = await self._resolve_group_member_name_from_api(
++                chat_id,
++                open_id,
++            )
++            if display_name and name_lookup_id and name_lookup_id != open_id:
++                self._sender_name_cache[name_lookup_id] = (
++                    display_name,
++                    time.time() + _FEISHU_SENDER_NAME_TTL_SECONDS,
++                )
+         return {
+             "user_id": primary_id,
+             "user_name": display_name,
+@@ -4226,6 +4288,66 @@ class FeishuAdapter(BasePlatformAdapter):
+             logger.debug("[Feishu] Failed to resolve sender name for %s", sender_id, exc_info=True)
+         return None
+
++    async def _resolve_group_member_name_from_api(
++        self,
++        chat_id: Optional[str],
++        open_id: Optional[str],
++    ) -> Optional[str]:
++        """Resolve a human sender from the current chat's member roster.
++
++        This is a permission-minimizing fallback for group messages only.  It
++        never changes the stable sender IDs used for Session isolation and it
++        fails silently so a transient Feishu API error cannot block delivery.
++        """
++        if not self._client or not chat_id or not open_id:
++            return None
++        trimmed_chat_id = chat_id.strip()
++        trimmed_open_id = open_id.strip()
++        if not trimmed_chat_id or not trimmed_open_id:
++            return None
++        cached_name = self._get_cached_sender_name(trimmed_open_id)
++        if cached_name is not None:
++            return cached_name or None
++        try:
++            request = (
++                BaseRequest.builder()
++                .http_method(HttpMethod.GET)
++                .uri(f"/open-apis/im/v1/chats/{trimmed_chat_id}/members")
++                .queries([
++                    ("member_id_type", "open_id"),
++                    ("page_size", "100"),
++                ])
++                .token_types({AccessTokenType.TENANT})
++                .build()
++            )
++            response = await self._run_blocking(self._client.request, request)
++            content = getattr(getattr(response, "raw", None), "content", None)
++            if not content:
++                return None
++            payload = json.loads(content)
++            if payload.get("code") != 0:
++                return None
++            items = (payload.get("data") or {}).get("items") or []
++            for member in items:
++                member_id = str(
++                    member.get("member_id")
++                    or member.get("open_id")
++                    or ""
++                ).strip()
++                if member_id != trimmed_open_id:
++                    continue
++                name = str(member.get("name") or "").strip()
++                if not name:
++                    return None
++                self._sender_name_cache[trimmed_open_id] = (
++                    name,
++                    time.time() + _FEISHU_SENDER_NAME_TTL_SECONDS,
++                )
++                return name
++        except Exception:
++            logger.debug("[Feishu] Failed to resolve sender name from group roster", exc_info=True)
++        return None
++
+     async def _fetch_bot_names(self, bot_ids: List[str]) -> Optional[Dict[str, str]]:
+         if not self._client or not bot_ids:
+             return None

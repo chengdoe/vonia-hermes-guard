@@ -1,3 +1,4 @@
 *
 !Dockerfile
 !file_safety.py
+!feishu_group_sender_identity.patch
