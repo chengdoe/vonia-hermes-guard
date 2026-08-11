@@ -6,6 +6,7 @@ LABEL ai.vonia.credential-guard.patch-sha256="d81eadd887e558da5a3608e050c7aea711
 LABEL ai.vonia.credential-guard.file-sha256="0107e4004eb38b12c49952b0e509094f1351ffc4e9c7252dc1ec9bd018af16f4"
 LABEL ai.vonia.feishu-group-identity.patch-sha256="7588cf0c51b7db43b29d0e83e6ec9bfcbd20e4c8c43f3e97f96aad6c1b9998a3"
 LABEL ai.vonia.feishu-group-identity.file-sha256="32c7071cb3ce1b7063c374862963ef41ce9f91b8ed11760e5a2a2efd330981a6"
+LABEL ai.vonia.runtime.default-cmd="sleep infinity"
 
 # Preserve the fixed image's root-owned, read-only application tree. The
 # entrypoint, CMD contract, runtime UID drop, installed dependencies and every
@@ -29,3 +30,9 @@ RUN test "$(sha256sum /opt/hermes/agent/file_safety.py | awk '{print $1}')" = \
       "32c7071cb3ce1b7063c374862963ef41ce9f91b8ed11760e5a2a2efd330981a6" && \
     test "$(stat -c '%u:%g:%a' /opt/hermes/plugins/platforms/feishu/adapter.py)" = "0:0:644" && \
     rm /tmp/feishu_group_sender_identity.patch
+
+# Zeabur's deploy-from-specification path can clear a Service-level command
+# override. Keep the documented non-interactive resident command in the image
+# itself so an omitted override cannot fall back to the interactive Hermes TUI.
+# The inherited entrypoint still starts s6 and reconciles the desired Gateway.
+CMD ["sleep", "infinity"]

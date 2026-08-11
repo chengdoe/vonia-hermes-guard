@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(sha256sum Dockerfile | awk '{print $1}')" = "7851324d184bab668a20925fcb001f6500b6e61943d03ba590ec5d48f939cf42"
+          test "$(sha256sum Dockerfile | awk '{print $1}')" = "eb550aea55f3155d8ba031107afda1fed79d4f682823ea2e777dc87e7fbef67a"
           test "$(sha256sum .dockerignore | awk '{print $1}')" = "ff4b7049b02bfa07ed511eab0a1ff96092ffc7f086d5d24124200fb569655841"
           test "$(sha256sum file_safety.py | awk '{print $1}')" = "0107e4004eb38b12c49952b0e509094f1351ffc4e9c7252dc1ec9bd018af16f4"
           test "$(sha256sum feishu_group_sender_identity.patch | awk '{print $1}')" = "7588cf0c51b7db43b29d0e83e6ec9bfcbd20e4c8c43f3e97f96aad6c1b9998a3"
@@ -41,6 +41,7 @@ jobs:
           test "$(jq -r .feishu_group_identity_source_sha256 build-manifest.json)" = "55cbb66fa60abdd3710a3476c197b31d46dc3ff13ec401c23557ee6465f96029"
           test "$(jq -r .feishu_group_identity_patch_sha256 build-manifest.json)" = "7588cf0c51b7db43b29d0e83e6ec9bfcbd20e4c8c43f3e97f96aad6c1b9998a3"
           test "$(jq -r .feishu_group_identity_patched_sha256 build-manifest.json)" = "32c7071cb3ce1b7063c374862963ef41ce9f91b8ed11760e5a2a2efd330981a6"
+          test "$(jq -c .default_cmd build-manifest.json)" = '["sleep","infinity"]'
 
       - name: Log in with the ephemeral repository token
         shell: bash
@@ -61,7 +62,7 @@ jobs:
             --platform linux/amd64 \
             --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
             --label "org.opencontainers.image.licenses=MIT" \
-            --tag "ghcr.io/chengdoe/vonia-hermes-guard:3c27eb-fileguard-feishu-identity-v2" \
+            --tag "ghcr.io/chengdoe/vonia-hermes-guard:3c27eb-fileguard-feishu-identity-v3" \
             --metadata-file /tmp/build-metadata.json \
             --push \
             .

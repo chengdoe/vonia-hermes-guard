@@ -11,6 +11,7 @@ fixed upstream Hermes image byte-for-byte except for two reviewed changes:
 - Feishu group identity patch: `feishu_group_sender_identity.patch`
 - Feishu adapter source SHA-256: `55cbb66fa60abdd3710a3476c197b31d46dc3ff13ec401c23557ee6465f96029`
 - Feishu adapter patched SHA-256: `32c7071cb3ce1b7063c374862963ef41ce9f91b8ed11760e5a2a2efd330981a6`
+- Default container command: `sleep infinity`
 
 The patch extends Hermes file-safety checks so credentials and protected state
 cannot be written through write, patch, delete, or move operations. No runtime
@@ -23,6 +24,11 @@ groups whose app lacks that roster permission, it also supports an explicit
 `sender_aliases` map keyed by stable Feishu IDs. It preserves the existing
 open/user/union IDs used for Session isolation, never logs the alias keys,
 does not alter bot identity handling, and requests no new permission scope.
+
+The image also fixes the documented non-interactive resident command as its
+default `CMD`. This prevents a deployment platform that omits a Service-level
+command override from launching the interactive Hermes TUI and crash-looping;
+the inherited entrypoint and s6 Gateway supervision remain unchanged.
 
 The release workflow uses only the repository-scoped, short-lived
 `GITHUB_TOKEN` with `packages: write`; no registry PAT is stored in the
