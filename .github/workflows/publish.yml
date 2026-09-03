@@ -10,10 +10,12 @@ on:
       - .dockerignore
       - Dockerfile
       - build-manifest.json
+      - compaction_notice_canary.py
       - feishu_dm_reply_routing.patch
       - feishu_group_sender_identity.patch
       - feishu_reply_routing_canary.py
       - file_safety.py
+      - gateway_compaction_progress_silence.patch
 
 permissions:
   contents: read
@@ -34,21 +36,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(sha256sum Dockerfile | awk '{print $1}')" = "33ccec1e4c5a222bb9a9b15d20240cab6d2fe28dbd85dc892308eab5dc9553df"
-          test "$(sha256sum .dockerignore | awk '{print $1}')" = "9d516ec3b4950d4ad8039a33dd90a3aa1cf7988def9f3f3b8cd2f3113e20c07a"
-          test "$(sha256sum file_safety.py | awk '{print $1}')" = "0107e4004eb38b12c49952b0e509094f1351ffc4e9c7252dc1ec9bd018af16f4"
-          test "$(sha256sum feishu_group_sender_identity.patch | awk '{print $1}')" = "f07083559e7a0a7480167ab4bb7ff7a3d7989069dd82340cda62e88c4a8b6cff"
-          test "$(sha256sum feishu_dm_reply_routing.patch | awk '{print $1}')" = "a91b333f7d713ae055044c20e2726df84c8a3ddf3e8efaff28f5927d516b71df"
+          test "$(sha256sum Dockerfile | awk '{print $1}')" = "0468b294256bc504f58eabe5c2516ce6f11fc4d4823cd64e3deda07ad8d65b12"
+          test "$(sha256sum .dockerignore | awk '{print $1}')" = "eff87ca018d37b45c2f00fc4b3f831430d5322a5e2b39baa96cef3166f92fae1"
+          test "$(sha256sum build-manifest.json | awk '{print $1}')" = "85d9778e21b9ca8128829c096c90eeafa9d2983a7a89faadc398aa87c612cd43"
+          test "$(sha256sum gateway_compaction_progress_silence.patch | awk '{print $1}')" = "a5a59033b06e6349f56c72070ecff778310d1b787b0aa2d30cb435b89081a642"
+          test "$(sha256sum compaction_notice_canary.py | awk '{print $1}')" = "e7161af73ab7edc14d8f216d0aea27f93fdbb1ca2d4e60d5e622a56b51deaf16"
           test "$(sha256sum feishu_reply_routing_canary.py | awk '{print $1}')" = "ff11aa95e79545d9342ae5bc1055c74672a5c80d9350d8d98bea79c6f52bcbd7"
-          test "$(jq -r .base_image build-manifest.json)" = "nousresearch/hermes-agent@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e"
-          test "$(jq -r .patched_sha256 build-manifest.json)" = "0107e4004eb38b12c49952b0e509094f1351ffc4e9c7252dc1ec9bd018af16f4"
-          test "$(jq -r .feishu_group_identity_source_sha256 build-manifest.json)" = "55cbb66fa60abdd3710a3476c197b31d46dc3ff13ec401c23557ee6465f96029"
-          test "$(jq -r .feishu_group_identity_patch_sha256 build-manifest.json)" = "f07083559e7a0a7480167ab4bb7ff7a3d7989069dd82340cda62e88c4a8b6cff"
-          test "$(jq -r .feishu_group_identity_patched_sha256 build-manifest.json)" = "4c5bcaa8c2ce725ae284c4a33c665599c7b844f63ebcf212a86f3a627c272d8b"
-          test "$(jq -r .feishu_dm_reply_routing_source_sha256 build-manifest.json)" = "67262c97333b9e8274d269229ae6d0adecee104eaf5729208d0ea9b0ae8b814c"
-          test "$(jq -r .feishu_dm_reply_routing_patch_sha256 build-manifest.json)" = "a91b333f7d713ae055044c20e2726df84c8a3ddf3e8efaff28f5927d516b71df"
-          test "$(jq -r .feishu_dm_reply_routing_patched_sha256 build-manifest.json)" = "b0540e301b49bff7995776312d038d6346ee0514be1e092d7d11a094a7a01273"
-          test "$(jq -r .feishu_reply_routing_contract build-manifest.json)" = "explicit_thread_id_only"
+          test "$(jq -r .base_image build-manifest.json)" = "ghcr.io/chengdoe/vonia-hermes-guard@sha256:e84019aefecaab92792e0f9046b6eef1862dfcd057f23c5af7233e613abea663"
+          test "$(jq -r .source_sha256 build-manifest.json)" = "0b749a90ff5740b5c8ce9d138f869aca19295f4c458e3b680e9be9fd7b0fb2ec"
+          test "$(jq -r .patch_sha256 build-manifest.json)" = "a5a59033b06e6349f56c72070ecff778310d1b787b0aa2d30cb435b89081a642"
+          test "$(jq -r .patched_sha256 build-manifest.json)" = "d65c4b5989df481bad963b6364f119bc624663b17e232839b637dbb521694fd3"
+          test "$(jq -r .behavior build-manifest.json)" = "routine_auto_compaction_statuses_are_silent_on_chat_unless_opted_in"
           test "$(jq -c .default_cmd build-manifest.json)" = '["sleep","infinity"]'
 
       - name: Log in with the ephemeral repository token
@@ -70,7 +68,7 @@ jobs:
             --platform linux/amd64 \
             --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
             --label "org.opencontainers.image.licenses=MIT" \
-            --tag "ghcr.io/chengdoe/vonia-hermes-guard:3c27eb-fileguard-feishu-routing-v4" \
+            --tag "ghcr.io/chengdoe/vonia-hermes-guard:3c27eb-fileguard-feishu-routing-v5-compaction-silent" \
             --metadata-file /tmp/build-metadata.json \
             --push \
             .
@@ -95,6 +93,16 @@ jobs:
             -v "$PWD/feishu_reply_routing_canary.py:/tmp/feishu_reply_routing_canary.py:ro" \
             "ghcr.io/chengdoe/vonia-hermes-guard@${{ steps.build.outputs.digest }}" \
             /tmp/feishu_reply_routing_canary.py
+
+      - name: Verify automatic compaction stays silent on chat surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --entrypoint python \
+            -v "$PWD/compaction_notice_canary.py:/tmp/compaction_notice_canary.py:ro" \
+            "ghcr.io/chengdoe/vonia-hermes-guard@${{ steps.build.outputs.digest }}" \
+            /tmp/compaction_notice_canary.py
 
       - name: Remove the temporary registry session
         if: always()

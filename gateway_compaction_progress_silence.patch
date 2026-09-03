@@ -1,0 +1,49 @@
+diff --git a/gateway/run.py b/gateway/run.py
+index 905a7763c5..74c491bf17 100644
+--- a/gateway/run.py
++++ b/gateway/run.py
+@@ -48,6 +48,7 @@ from typing import Awaitable, Callable, Dict, Optional, Any, List, Tuple, Union,
+ 
+ from agent.async_utils import consume_detached_task_result, safe_schedule_threadsafe
+ from agent.conversation_compression import (
++    COMPACTION_DONE_STATUS,
+     COMPACTION_STATUS,
+     COMPRESSION_RETRY_CONTEXT_REDUCED_STATUS_TEMPLATE,
+     COMPRESSION_RETRY_MESSAGES_STATUS_TEMPLATE,
+@@ -164,6 +165,7 @@ _COMPRESSION_PROGRESS_STATUS_RE = re.compile(
+         _status_template_to_regex(_template)
+         for _template in (
+             COMPACTION_STATUS,
++            COMPACTION_DONE_STATUS,
+             PRE_API_COMPRESSION_STATUS_TEMPLATE,
+             PREFLIGHT_COMPRESSION_STATUS_TEMPLATE,
+             IDLE_COMPACTION_STATUS_TEMPLATE,
+@@ -611,18 +613,17 @@ def _prepare_gateway_status_message(platform: Any, event_type: str, message: str
+         return text
+ 
+     text = _redact_gateway_user_facing_secrets(text)
+-    if _TELEGRAM_NOISY_STATUS_RE.search(text):
+-        # Opt-in #52995: `compression.progress_notices: true` lets ROUTINE
+-        # compression progress statuses through to chat platforms. The
+-        # membership check is derived from the #69550 template constants, so
+-        # non-compression noise (aux failures, provider retry chatter, ...)
+-        # stays suppressed even when the gate is open. Default False keeps
+-        # the silent-by-design behavior byte-identical.
+-        if not (
+-            _gateway_compression_progress_notices_enabled()
+-            and _COMPRESSION_PROGRESS_STATUS_RE.search(text)
+-        ):
++    is_compression_progress = bool(_COMPRESSION_PROGRESS_STATUS_RE.search(text))
++    if is_compression_progress:
++        # Routine auto-compression is an internal lifecycle. Chat users only
++        # see it after explicitly opting in, including the terminal
++        # ``compacted`` edge emitted after a successful compression.
++        if not _gateway_compression_progress_notices_enabled():
+             return None
++    elif _TELEGRAM_NOISY_STATUS_RE.search(text):
++        # Auxiliary/provider retry chatter stays suppressed even when routine
++        # compression progress is enabled.
++        return None
+     if _looks_like_gateway_provider_error(text):
+         return _gateway_provider_error_reply(text)
+     return text

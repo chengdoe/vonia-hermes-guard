@@ -1,5 +1,5 @@
 *
+!.dockerignore
 !Dockerfile
-!file_safety.py
-!feishu_group_sender_identity.patch
-!feishu_dm_reply_routing.patch
+!build-manifest.json
+!gateway_compaction_progress_silence.patch
